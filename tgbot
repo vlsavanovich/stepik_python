@@ -1,0 +1,252 @@
+import telebot
+from datetime import date, timedelta
+import requests
+import json
+from telebot import types
+
+WEATHER_API = 'http://api.openweathermap.org/data/2.5/forecast'
+token = 'api_telegram_bot'
+bot = telebot.TeleBot(token)
+
+MAIN_STATE = 'main'
+WEATHER_DATE_STATE = 'weather_date_handler'
+CITY_STATE = 'city_state'
+
+# citys = {}
+MONTH = {
+    1: 'января',
+    2: 'февраля',
+    3: 'марта',
+    4: 'апреля',
+    5: 'мая',
+    6: 'июня',
+    7: 'июля',
+    8: 'августа',
+    9: 'сентября',
+    10: 'октября',
+    11: 'ноября',
+    12: 'декабря',
+}
+"""data = {
+    'states': {
+
+    },
+    MAIN_STATE: {
+
+    },
+    CITY_STATE: {
+
+    },
+    WEATHER_DATE_STATE: {
+
+    },
+}"""
+
+# calls = {}
+
+RECALL = '\nДоступные комманды:\n/weather - узнать погоду ☁️\n/calls - количество Ваших запросов 🤖'
+try:
+    data = json.load(open('db/data.json', 'r', encoding='utf-8'))
+except FileNotFoundError:
+    data = {
+        'states': {
+
+        },
+        MAIN_STATE: {
+
+        },
+        CITY_STATE: {
+
+        },
+        WEATHER_DATE_STATE: {
+
+        }
+    }
+try:
+    citys = json.load(open('db/citys.json', 'r', encoding='utf-8'))
+except FileNotFoundError:
+    citys = {
+        'city': {
+        }
+    }
+try:
+    calls = json.load(open('db/calls.json', 'r', encoding='utf-8'))
+except FileNotFoundError:
+    calls = {
+        "call": {
+        }
+    }
+
+
+def change_data(key, user_id, value):
+    data[key][user_id] = value
+    json.dump(data,
+              open('db/data.json', 'w', encoding='utf-8'),
+              indent=2,
+              ensure_ascii=False)
+
+
+def change_citys(key, user_id, value):
+    citys[key][user_id] = value
+    json.dump(citys,
+              open('db/citys.json', 'w', encoding='utf-8'),
+              indent=2,
+              ensure_ascii=False)
+
+
+def change_calls(key, user_id, value):
+    calls[key][user_id] = value
+    json.dump(calls,
+              open('db/calls.json', 'w', encoding='utf-8'),
+              indent=2,
+              ensure_ascii=False)
+
+
+@bot.message_handler(func=lambda message: True)
+def dispathcer(message):
+    user_id = str(message.from_user.id)
+    state = data['states'].get(user_id, MAIN_STATE)
+    if state == MAIN_STATE:
+        main_handler(message)
+    elif state == CITY_STATE:
+        city_handler(message)
+    elif state == WEATHER_DATE_STATE:
+        weather_date(message)
+
+
+def main_handler(message):
+    user_id = str(message.from_user.id)
+    bot.send_chat_action(message.from_user.id, 'typing')
+    if message.text == '/start':
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add(types.KeyboardButton('Найти город!'), types.KeyboardButton('Количество Ваших запросов'))
+        bot.send_message(
+            user_id,
+            'Этот бот поможет Вам узнать погоду где угодно!',
+            reply_markup=markup
+        )
+        change_data('states', user_id, MAIN_STATE)
+    elif message.text == 'Найти город!' or message.text == '/weather':
+        bot.send_message(message.from_user.id,
+                         'ВВОД ГОРОДА: \n'
+                         'Вам нужно ввести название города (можно даже на другом языке) ✍️\n'
+                         'Постарайтесь ввести его правильно 😉')
+        change_data('states', user_id, CITY_STATE)
+    elif message.text == '/calls' or message.text == 'Количество Ваших запросов':
+        if user_id not in calls['call']:
+            change_calls('call', user_id, str(0))
+        bot.send_message(user_id, calls['call'][user_id])
+        bot.send_message(user_id, RECALL)
+    else:
+        bot.send_message(user_id,
+                         f'Что-то пошло не так 😱\n {RECALL}')
+
+
+def city_handler(message):   # Я ТУТ ПРОВЕРЯЮ, ЕСТЬ ЛИ ВВЕДЕНЫЙ ГОРОД ИЛИ ВВЕДЕН ЛИ ОН БЕЗ ОШИБОК. ЕСЛИ ВСЕ ОК В TRY Я ПЕРЕКИДЫВАЮ УЖЕ В ПОГОДУ, ПРЕДТВАРИТЕЛЬНО
+                                                                                                    ЗАПИСАВ ГОРОД В СЛОВАРЬ
+    bot.send_chat_action(message.from_user.id, 'typing')
+    user_id = str(message.from_user.id)
+    today = date.today()
+    day3 = date.today() + timedelta(days=3)
+    while True:
+        try:
+            city = message.text.lower()
+            params_weather_api_true = {
+                'q': city,
+                'appid': 'api с openweather',
+                'units': 'metric',
+                'lang': 'ru'
+            }
+            weather_request = requests.get(WEATHER_API, params=params_weather_api_true)
+            weather_json = weather_request.json()
+            data_list = weather_json['list']
+            change_citys('city', user_id, message.text.upper())
+            bot.send_message(message.from_user.id,
+                             'ПРОГНОЗ ПОГОДЫ: \n'
+                             f'Сегодня: {today.day} {MONTH[today.month]} 🗓️\nНа какой день? 🗂️\n'
+                             'Введи "Сегодня" или "Завтра".\n'
+                             f'Так же можно узнать погоду до {day3.day} {MONTH[day3.month]}, '
+                             f'просто введя доступное число 👍\n')
+            change_data('states', user_id, WEATHER_DATE_STATE)
+            break
+        except KeyError:
+            bot.send_message(message.from_user.id,
+                             'ВВОД ГОРОДА: \n'
+                             'Неверно введен город! Попробуйте еще раз!')
+            change_data('states', user_id, CITY_STATE)
+            break
+
+
+def weather_date(message):
+    user_id = str(message.from_user.id)
+    city = citys['city'][user_id]
+    today = date.today()
+    day1 = date.today() + timedelta(days=1)
+    day2 = date.today() + timedelta(days=2)
+    day3 = date.today() + timedelta(days=3)
+
+    params_weather_api = {
+        'q': city,
+        'appid': '67867801a6efa50790ed8ec4a0e24edd',
+        'units': 'metric',
+        'lang': 'ru'
+    }
+
+    weather_request = requests.get(WEATHER_API, params=params_weather_api)
+    weather_json = weather_request.json()
+    data_list = weather_json['list']
+    template = 'Погода для города: {} {}C, так же {} 🤫'
+    bot.send_chat_action(message.from_user.id, 'typing')
+    if user_id not in calls['call']:
+        change_calls('call', user_id, str(0))
+    change_calls('call', user_id, int(calls['call'][user_id]) + 1)
+    
+    if 'сегодня' in message.text.lower() or str(today.day).find(str(message.text.lower())) == 0:
+        weather = data_list[0]
+        weather_dic = weather['weather']
+        temperature = data_list[0]['main']['temp']
+        bot.send_message(message.from_user.id,
+                         template.format(city, temperature, weather_dic[0]['description']))
+        change_data('states', user_id, MAIN_STATE)
+        bot.send_message(message.from_user.id, RECALL)
+        
+    elif 'завтра' in message.text.lower() or str(day1.day).find(str(message.text.lower())) == 0:
+        weather = data_list[1]
+        weather_dic = weather['weather']
+        temperature = data_list[1]['main']['temp']
+        bot.send_message(message.from_user.id,
+                         template.format(city, temperature, weather_dic[0]['description']))
+        change_data('states', user_id, MAIN_STATE)
+        bot.send_message(message.from_user.id, RECALL)
+        
+    elif str(day2.day).find(str(message.text.lower())) == 0:
+        weather = data_list[2]
+        weather_dic = weather['weather']
+        temperature = data_list[2]['main']['temp']
+        bot.send_message(message.from_user.id,
+                         template.format(city, temperature, weather_dic[0]['description']))
+        change_data('states', user_id, MAIN_STATE)
+        bot.send_message(message.from_user.id, RECALL)
+        
+    elif str(day3.day).find(str(message.text.lower())) == 0:
+        weather = data_list[2]
+        weather_dic = weather['weather']
+        temperature = data_list[2]['main']['temp']
+        bot.send_message(message.from_user.id,
+                         template.format(city, temperature, weather_dic[0]['description']))
+        change_data('states', user_id, MAIN_STATE)
+        bot.send_message(message.from_user.id, RECALL)
+        
+    else:
+        bot.send_message(message.from_user.id, 'Вы вышли за рамки доступных дат! \n'
+                                               'Или ввели неверную комманду!')
+        change_data('states', user_id, WEATHER_DATE_STATE)
+        bot.send_message(message.from_user.id,
+                         'ПРОГНОЗ ПОГОДЫ: \n'
+                         f'Сегодня: {today.day} {MONTH[today.month]} 🗓️\nНа какой день? 🗂️\n'
+                         'Введи "Сегодня" или "Завтра".\n'
+                         f'Так же можно узнать погоду до {day3.day} {MONTH[day3.month]}, '
+                         f'просто введя доступное число 👍\n')
+
+
+bot.polling()
